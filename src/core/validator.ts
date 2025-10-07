@@ -7,7 +7,7 @@ import {
 } from "../rules/index.js";
 import { isBlank, coerceBoolean, coerceNumber, coerceDate, normalizeDateISO, coerceTimeToHHMMSS } from "./utils.js"
 
-import { loadWorkbook, sheetToRows } from "./reader.js";
+import { loadWorkbook, loadWorkbookFrom, sheetToRows, type ExcelInput } from "./reader.js";
 
 const EMAIL_RE = /^(?!\.)(?!.*\.\.)[a-z0-9._+-]+(?<!\.)@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
@@ -37,25 +37,60 @@ export type ValidateResult = {
   data?: Record<string, Array<Record<string, unknown>>>;
 };
 
+// Overloads
+export function validateExcelAsync(
+  excel: ExcelInput,
+  schema: WorkbookSchemaT,
+  opts?: ValidateOptions
+): Promise<ValidateResult>;
+
+export function validateExcelAsync(
+  excel: ExcelInput,
+  schema: string | object,
+  opts?: ValidateOptions
+): Promise<ValidateResult>;
+
+
 export async function validateExcelAsync(
-  excelPath: string,
-  schemaPath: string,
+  excel: ExcelInput,
+  schemaInput: string | object | WorkbookSchemaT,
   opts: ValidateOptions = {}
 ): Promise<ValidateResult> {
-  const rawSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  const schema: WorkbookSchemaT = WorkbookSchema.parse(rawSchema);
-  const wb = await loadWorkbook(excelPath);
+
+
+  // const rawSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+  // const schema: WorkbookSchemaT = WorkbookSchema.parse(rawSchema);
+  // const wb = await loadWorkbook(excelPath);
+
+    // --- Parse schema input (path | JSON string | object) ---
+  let schemaObj: WorkbookSchemaT;
+  if (typeof schemaInput === "string") {
+    const s = schemaInput.trim();
+    // If it's JSON text, parse it; otherwise treat as a file path
+    if (s.startsWith("{") || s.startsWith("[")) {
+      schemaObj = WorkbookSchema.parse(JSON.parse(s));
+    } else {
+      const json = fs.readFileSync(schemaInput, "utf8");
+      schemaObj = WorkbookSchema.parse(JSON.parse(json));
+    }
+  } else {
+    schemaObj = WorkbookSchema.parse(schemaInput);
+  }
+
+  // --- Load workbook from any of the supported inputs ---
+  const wb = await loadWorkbookFrom(excel);
+
+  const errors: ValidationError[] = [];
+  const collectedData: Record<string, Array<Record<string, unknown>>> = {};
 
   const sheetRowsByName: Record<string, Array<Record<string, unknown>> | undefined> = {};
-  for (const def of schema) {
+  for (const def of schemaObj) {
     const ws = wb.getWorksheet(def.tabname);
     sheetRowsByName[def.tabname] = ws ? sheetToRows(ws) : undefined;
   }
 
-  const errors: ValidationError[] = [];
-  const collectedData: Record<string, Array<Record<string, unknown>>> = {}; // <- new
 
-  for (const sheetDef of schema) {
+  for (const sheetDef of schemaObj) {
     const ws = wb.getWorksheet(sheetDef.tabname);
     if (!ws) {
       if (sheetDef.required) {
@@ -68,7 +103,7 @@ export async function validateExcelAsync(
       continue;
     }
 
-    const rows = sheetRowsByName[sheetDef.tabname] ?? [];
+    const rows = sheetToRows(ws)
 
     if (rows.length < sheetDef.minRows) {
       errors.push({

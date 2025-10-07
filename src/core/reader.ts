@@ -1,48 +1,61 @@
 import ExcelJS from "exceljs";
 
-/** Normalize ExcelJS cell values into primitives suitable for validation. */
-function normalizeCellValue(v: ExcelJS.CellValue): unknown {
-  if (v === null) return null;
-  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+export type ExcelInput =
+  | string                // file path
+  | ArrayBuffer
+  | Uint8Array
+  | Buffer
+  | File;                 // browser File
 
-  if (v instanceof Date) return v; // keep Date object if you want to add a date rule later
-
-  // Formula values, hyperlinks, rich text, etc.
-  if (typeof v === "object") {
-    // Try to extract a useful primitive when possible
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyV: any = v;
-    if (anyV.text) return anyV.text;
-    if (anyV.result !== undefined) return anyV.result;
-    if (anyV.hyperlink) return anyV.hyperlink;
-    if (anyV.richText) return String(anyV.richText.map((t: { text: string }) => t.text).join(""));
-  }
-  return String(v as unknown as string);
+function toArrayBuffer(data: Uint8Array | Buffer): ArrayBuffer {
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy.buffer;
 }
 
-/**
- * Load workbook from path.
- */
+export async function loadWorkbookFrom(input: ExcelInput): Promise<ExcelJS.Workbook> {
+  const wb = new ExcelJS.Workbook();
+
+  if (typeof input === "string") {
+    // Node fs path
+    await wb.xlsx.readFile(input);
+    return wb;
+  }
+
+  // Browser File
+  if (typeof File !== "undefined" && input instanceof File) {
+    const ab = await input.arrayBuffer();
+    await wb.xlsx.load(ab);
+    return wb;
+  }
+
+  if (input instanceof ArrayBuffer) {
+    await wb.xlsx.load(input);
+    return wb;
+  }
+
+  // Uint8Array or Node Buffer
+  if (input && typeof (input as any).byteLength === "number") {
+    const ab = toArrayBuffer(input as Uint8Array);
+    await wb.xlsx.load(ab);
+    return wb;
+  }
+
+  throw new Error("Unsupported excel input type for loadWorkbookFrom()");
+}
+
+/** Existing helper kept as-is for path-based reads */
 export async function loadWorkbook(excelPath: string): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
-  // Speed options for read-only
-  wb.creator = "excel-schema-validator";
   await wb.xlsx.readFile(excelPath);
   return wb;
 }
 
-/**
- * Read rows from a worksheet as array of objects {header: value}.
- * Assumes row 1 is the header row.
- */
 export function sheetToRows(ws: ExcelJS.Worksheet): Array<Record<string, unknown>> {
   const headerRow = ws.getRow(1);
   const headers: string[] = [];
-
-  // Build headers from first row (empty -> null)
   headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    const name = cell.value ? String(cell.value).trim() : "";
-    headers[colNumber - 1] = name;
+    headers[colNumber - 1] = cell.value ? String(cell.value).trim() : "";
   });
 
   const rows: Array<Record<string, unknown>> = [];
@@ -50,19 +63,14 @@ export function sheetToRows(ws: ExcelJS.Worksheet): Array<Record<string, unknown
 
   for (let r = 2; r <= lastRow; r++) {
     const row = ws.getRow(r);
-    if (!row || row.number === 0) continue;
-
     const obj: Record<string, unknown> = {};
     headers.forEach((h, idx) => {
-      if (!h) return; // ignore un-named columns
+      if (!h) return;
       const cell = row.getCell(idx + 1);
-      obj[h] = normalizeCellValue(cell.value);
+      obj[h] = cell.value === undefined ? null : cell.value;
     });
-
-    // Skip completely empty rows (all null/undefined/"")
-    const hasAny = Object.values(obj).some((v) => v !== null && v !== undefined && v !== "");
+    const hasAny = Object.values(obj).some(v => v !== null && v !== undefined && v !== "");
     if (hasAny) rows.push(obj);
   }
-
   return rows;
 }
