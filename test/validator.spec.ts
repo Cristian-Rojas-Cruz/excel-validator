@@ -20,10 +20,11 @@ describe("Custom Excel validation", () => {
   it("reports", async () => {        // <- mark test async
     const res = await validateExcelAsync(          // <- await the promise
       path.join(__dirname, "fixtures/custom_check/sample.xlsx"),
-      path.join(__dirname, "fixtures/custom_check/schema.json")
+      path.join(__dirname, "fixtures/custom_check/schema.json"),
+      {returnData:true}
     );
 
-    console.log(res)
+    console.log(JSON.stringify(res));
     expect(res.success).toBe(true);
     expect(res.errors.length === 0).toBe(true);
   });

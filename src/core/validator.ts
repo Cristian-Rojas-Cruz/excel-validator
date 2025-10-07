@@ -50,16 +50,23 @@ export type ValidateOptions = {
   returnData?: boolean;
 };
 
+export type ValidateResult = {
+  success: boolean;
+  errors: ValidationError[];
+  data?: Record<string, Array<Record<string, unknown>>>;
+};
+
 export async function validateExcelAsync(
   excelPath: string,
   schemaPath: string,
   opts: ValidateOptions = {}
-) {
+): Promise<ValidateResult> {
   const rawSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
   const schema: WorkbookSchemaT = WorkbookSchema.parse(rawSchema);
   const wb = await loadWorkbook(excelPath);
 
   const errors: ValidationError[] = [];
+  const collectedData: Record<string, Array<Record<string, unknown>>> = {}; // <- new
 
   for (const sheetDef of schema) {
     const ws = wb.getWorksheet(sheetDef.tabname);
@@ -68,7 +75,7 @@ export async function validateExcelAsync(
         errors.push({
           code: "SHEET_MISSING",
           message: `Missing required sheet: ${sheetDef.tabname}`,
-          sheet: sheetDef.tabname
+          sheet: sheetDef.tabname,
         });
       }
       continue;
@@ -80,32 +87,42 @@ export async function validateExcelAsync(
       errors.push({
         code: "MIN_ROWS",
         message: `Sheet "${sheetDef.tabname}" must have at least ${sheetDef.minRows} rows`,
-        sheet: sheetDef.tabname
+        sheet: sheetDef.tabname,
       });
     }
 
     const headers = Object.keys(rows[0] ?? {});
-    const requiredCols = sheetDef.columns.filter((c) => c.required).map((c) => c.name);
-    const missing = requiredCols.filter((c) => !headers.includes(c));
+    const requiredCols = sheetDef.columns.filter(c => c.required).map(c => c.name);
+    const missing = requiredCols.filter(c => !headers.includes(c));
     if (missing.length) {
       errors.push({
         code: "REQUIRED_COLUMN_MISSING",
         message: `Sheet "${sheetDef.tabname}" missing required columns: ${missing.join(", ")}`,
-        sheet: sheetDef.tabname
+        sheet: sheetDef.tabname,
       });
     }
 
     if (!opts.allowExtraColumns && rows[0]) {
-      const declared = new Set(sheetDef.columns.map((c) => c.name));
-      const extras = Object.keys(rows[0]).filter((h) => !declared.has(h));
-      // Optionally surface extras as warnings or ignore
-      void extras;
+      const declared = new Set(sheetDef.columns.map(c => c.name));
+      const extras = Object.keys(rows[0]).filter(h => !declared.has(h));
+      void extras; // decide later if you want to surface as warnings
     }
 
+    // -------- validation + data collection --------
+    const outRows: Array<Record<string, unknown>> = [];
+
     rows.forEach((row, idx) => {
+      // Build one output row using schema keys (col.key ?? col.name)
+      const out: Record<string, unknown> = { rowNumber: idx + 2 };
+
       for (const col of sheetDef.columns) {
+        const outKey = (col as any).key ?? col.name; // <- use key if provided
         const raw = (row as any)[col.name];
 
+        // Collect (with coercion) even if there are errors, so the caller can inspect
+        let val: unknown = raw;
+
+        // Required check
         if (col.required && isBlank(raw)) {
           errors.push({
             code: "REQUIRED_CELL_EMPTY",
@@ -113,24 +130,29 @@ export async function validateExcelAsync(
             sheet: sheetDef.tabname,
             row: idx + 2,
             column: col.name,
-            tuple: { ...row }
+            tuple: { ...row },
           });
+          // still set collected value as null for clarity
+          out[outKey] = null;
           continue;
         }
 
-        if (isBlank(raw)) return; // nothing to validate
+        // Empty values: store null and skip type checks
+        if (isBlank(raw)) {
+          out[outKey] = null;
+          continue;
+        }
 
-        // Try coercion for booleans/numbers; otherwise validate as-is
-        let val: unknown = raw;
+        // Coercions
         if (col.type === "boolean") {
           const b = coerceBoolean(raw);
           if (b !== null) val = b;
-        }
-        if (col.type === "number") {
+        } else if (col.type === "number") {
           const n = coerceNumber(raw);
           if (n !== null) val = n;
         }
 
+        // Validate
         switch (col.type) {
           case "enum":
             if (col.allowedValues && !col.allowedValues.includes(String(val))) {
@@ -141,7 +163,7 @@ export async function validateExcelAsync(
                 row: idx + 2,
                 column: col.name,
                 value: raw,
-                tuple: { ...row }
+                tuple: { ...row },
               });
             }
             break;
@@ -155,7 +177,7 @@ export async function validateExcelAsync(
                 row: idx + 2,
                 column: col.name,
                 value: raw,
-                tuple: { ...row }
+                tuple: { ...row },
               });
             }
             break;
@@ -169,7 +191,7 @@ export async function validateExcelAsync(
                 row: idx + 2,
                 column: col.name,
                 value: raw,
-                tuple: { ...row }
+                tuple: { ...row },
               });
             }
             break;
@@ -183,19 +205,24 @@ export async function validateExcelAsync(
                 row: idx + 2,
                 column: col.name,
                 value: raw,
-                tuple: { ...row }
+                tuple: { ...row },
               });
             }
             break;
 
           default:
-            // string: no strict check
+            // string: nothing extra
             break;
         }
 
+        // Store coerced (or original) value under outKey
+        out[outKey] = val;
       }
+
+      outRows.push(out);
     });
 
+    // Run rules
     if (sheetDef.rules) {
       for (const [ruleName, params] of Object.entries(sheetDef.rules)) {
         const ruleFn = ruleRegistry[ruleName];
@@ -203,14 +230,22 @@ export async function validateExcelAsync(
         const ruleErrors = ruleFn({
           sheet: sheetDef.tabname,
           rows,
-          params: params as Record<string, unknown>
+          params: params as Record<string, unknown>,
         });
         errors.push(...ruleErrors);
       }
     }
+
+    // Attach collected data for this sheet
+    if (opts.returnData) {
+      collectedData[sheetDef.tabname] = outRows;
+    }
   }
 
-  return { success: errors.length === 0, errors };
+  const result: ValidateResult = { success: errors.length === 0, errors };
+  if (opts.returnData) result.data = collectedData;
+  return result;
 }
+
 
 export const validateExcel = validateExcelAsync;
