@@ -1,0 +1,9 @@
+src/
+test/
+tsconfig*.json
+vitest.config.*
+.eslintrc.*
+eslint.config.*
+.prettierrc
+*.md
+*.mts

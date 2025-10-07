@@ -1,20 +1,45 @@
 {
-  "name": "excel-validator",
+  "name": "@crissnpm/excel-validator",
   "version": "0.0.1",
-  "description": "",
+  "description": "Type-safe Excel schema validator using ExcelJS and Zod.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "eslint . --ext .ts",
     "test": "vitest run"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "excel",
+    "validation",
+    "typescript",
+    "exceljs",
+    "zod"
+  ],
+  "author": "Cristian Rojas <cristian.c.rojas.cruz@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cristian-Rojas-Cruz/excel-validator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Cristian-Rojas-Cruz/excel-validator/issues"
+  },
+  "homepage": "https://github.com/Cristian-Rojas-Cruz/excel-validator#readme",
   "devDependencies": {
     "@eslint/js": "^9.37.0",
     "@eslint/json": "^0.13.2",
