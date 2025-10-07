@@ -1,6 +1,6 @@
 {
   "name": "@crissnpm/excel-validator",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Type-safe Excel schema validator using ExcelJS and Zod.",
   "type": "module",
   "main": "dist/index.js",
@@ -14,7 +14,9 @@
   "files": [
     "dist"
   ],
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
