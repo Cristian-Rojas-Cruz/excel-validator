@@ -8,7 +8,13 @@ export type ValidationErrorCode =
   | "TYPE_MISMATCH"
   | "RULE_UNIQUE"
   | "RULE_MUTUALLY_EXCLUSIVE"
-  | "RULE_CONDITIONAL_REQUIRED";
+  | "RULE_CONDITIONAL_REQUIRED"
+  | "RULE_AT_LEAST_ONE_REQUIRED"
+  | "RULE_CONDITIONAL_ENUM"
+  | "RULE_DATE_ORDER"
+  | "RULE_REFERENCE_NOT_FOUND"
+  | "RULE_ALL_OR_NONE"
+  | "RULE_CUSTOM";
 
 export interface ValidationError {
   code: ValidationErrorCode;

@@ -1,49 +1,30 @@
 import fs from "fs";
 import { WorkbookSchema, type WorkbookSchemaT } from "./schema.js";
 import type { ValidationError } from "./errors.js";
-import { uniqueRule, mutuallyExclusiveRule, conditionalRequiredRule, type RuleFn } from "../rules/index.js";
+import {
+  uniqueRule, mutuallyExclusiveRule, conditionalRequiredRule, type RuleFn,
+  referencesRule, atLeastOneRequiredRule, allOrNoneRule, conditionalEnumRule, dateOrderRule
+} from "../rules/index.js";
+import { isBlank, coerceBoolean, coerceNumber, coerceDate, normalizeDateISO, coerceTimeToHHMMSS } from "./utils.js"
+
 import { loadWorkbook, sheetToRows } from "./reader.js";
 
 const EMAIL_RE = /^(?!\.)(?!.*\.\.)[a-z0-9._+-]+(?<!\.)@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
-// --- coercion helpers ---
-const TRUE_SET  = new Set(["true","t","1","yes","y","si","sí"]);
-const FALSE_SET = new Set(["false","f","0","no","n"]);
-
-function isBlank(v: unknown) {
-  return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
-}
-
-function coerceBoolean(v: unknown): boolean | null {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number")  return v !== 0;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (TRUE_SET.has(s))  return true;
-    if (FALSE_SET.has(s)) return false;
-  }
-  return null;
-}
-
-function coerceNumber(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const s = v.trim();
-    if (!s) return null;
-    // Support "1,234.56" and "1.234,56"
-    const commaAsDecimal = /,\d{1,}$/.test(s);
-    const normalized = commaAsDecimal ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
+// ----- Rules registry -----
 
 const ruleRegistry: Record<string, RuleFn> = {
   unique: uniqueRule,
   mutuallyExclusive: mutuallyExclusiveRule,
-  conditionalRequired: conditionalRequiredRule
+  conditionalRequired: conditionalRequiredRule,
+  references: referencesRule,
+  atLeastOneRequired: atLeastOneRequiredRule,
+  allOrNone: allOrNoneRule,
+  conditionalEnum: conditionalEnumRule,
+  dateOrder: dateOrderRule,
 };
+
+// ----- Rules registry -----
 
 export type ValidateOptions = {
   allowExtraColumns?: boolean;
@@ -65,6 +46,12 @@ export async function validateExcelAsync(
   const schema: WorkbookSchemaT = WorkbookSchema.parse(rawSchema);
   const wb = await loadWorkbook(excelPath);
 
+  const sheetRowsByName: Record<string, Array<Record<string, unknown>> | undefined> = {};
+  for (const def of schema) {
+    const ws = wb.getWorksheet(def.tabname);
+    sheetRowsByName[def.tabname] = ws ? sheetToRows(ws) : undefined;
+  }
+
   const errors: ValidationError[] = [];
   const collectedData: Record<string, Array<Record<string, unknown>>> = {}; // <- new
 
@@ -81,7 +68,7 @@ export async function validateExcelAsync(
       continue;
     }
 
-    const rows = sheetToRows(ws);
+    const rows = sheetRowsByName[sheetDef.tabname] ?? [];
 
     if (rows.length < sheetDef.minRows) {
       errors.push({
@@ -210,6 +197,44 @@ export async function validateExcelAsync(
             }
             break;
 
+          case "date": {
+            // Try coercion to Date -> normalize to "YYYY-MM-DD"
+            const d = coerceDate(val);
+            if (!d) {
+              errors.push({
+                code: "TYPE_MISMATCH",
+                message: `Row ${idx + 2}: Expected date in "${col.name}".`,
+                sheet: sheetDef.tabname,
+                row: idx + 2,
+                column: col.name,
+                value: raw,
+                tuple: { ...row },
+              });
+            } else {
+              val = normalizeDateISO(d);
+            }
+            break;
+          }
+
+          case "time": {
+            // Try coercion to "HH:MM:SS"
+            const t = coerceTimeToHHMMSS(val);
+            if (!t) {
+              errors.push({
+                code: "TYPE_MISMATCH",
+                message: `Row ${idx + 2}: Expected time (HH:MM or HH:MM:SS) in "${col.name}".`,
+                sheet: sheetDef.tabname,
+                row: idx + 2,
+                column: col.name,
+                value: raw,
+                tuple: { ...row },
+              });
+            } else {
+              val = t;
+            }
+            break;
+          }
+
           default:
             // string: nothing extra
             break;
@@ -231,6 +256,7 @@ export async function validateExcelAsync(
           sheet: sheetDef.tabname,
           rows,
           params: params as Record<string, unknown>,
+          sheetRowsByName
         });
         errors.push(...ruleErrors);
       }
@@ -246,6 +272,5 @@ export async function validateExcelAsync(
   if (opts.returnData) result.data = collectedData;
   return result;
 }
-
 
 export const validateExcel = validateExcelAsync;

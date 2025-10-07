@@ -18,6 +18,7 @@
       { "name": "Ciudad", "required": false, "type": "string" },
       { "name": "Código postal", "required": false, "type": "string" },
       { "name": "Tipo de contrato", "required": false, "type": "enum", "allowedValues": ["Temporal", "Fijo"] },
+      { "name": "Duración",  "required": false, "type": "string" },
       { "name": "Fecha inicio", "required": true, "type": "date" },
       { "name": "Fecha fin",    "required": true, "type": "date" },
       { "name": "Hora entrada", "required": false, "type": "time" },

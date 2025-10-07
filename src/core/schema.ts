@@ -4,7 +4,7 @@ export const ColumnRule = z.object({
   name: z.string(),
   key: z.string().optional(), // Optional if you want an internal name
   required: z.boolean().default(false),
-  type: z.enum(["string", "enum", "email", "number", "boolean"]).default("string"),
+  type: z.enum(["string", "enum", "email", "number", "boolean", "date", "time"]).default("string"),
   allowedValues: z.array(z.string()).optional(),
 });
 

@@ -4,14 +4,14 @@
     "required": true,
     "minRows": 3,
     "columns": [
-      { "name": "ID", "outputKey":"id", "required": true, "type": "string" },
-      { "name": "Email", "outputKey":"email", "required": true, "type": "email" },
-      { "name": "Category", "outputKey":"cat", "required": true, "type": "enum", "allowedValues": ["A", "B", "C"] },
-      { "name": "Amount", "outputKey":"amount", "required": false, "type": "number" },
-      { "name": "IsActive", "outputKey":"active", "required": false, "type": "boolean" },
-      { "name": "ConditionalField", "outputKey":"condition", "required": false, "type": "string" },
-      { "name": "Exclusive1", "outputKey":"exclusiveone", "required": false, "type": "string" },
-      { "name": "Exclusive2", "outputKey":"exclusivetwo", "required": false, "type": "string" }
+      { "name": "ID", "key":"id", "required": true, "type": "string" },
+      { "name": "Email", "key":"email", "required": true, "type": "email" },
+      { "name": "Category", "key":"cat", "required": true, "type": "enum", "allowedValues": ["A", "B", "C"] },
+      { "name": "Amount", "key":"amount", "required": false, "type": "number" },
+      { "name": "IsActive", "key":"active", "required": false, "type": "boolean" },
+      { "name": "ConditionalField", "key":"condition", "required": false, "type": "string" },
+      { "name": "Exclusive1", "key":"exclusiveone", "required": false, "type": "string" },
+      { "name": "Exclusive2", "key":"exclusivetwo", "required": false, "type": "string" }
     ],
     "rules": {
       "unique": { "columns": ["ID", "Email"] },

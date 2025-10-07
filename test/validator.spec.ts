@@ -10,11 +10,20 @@ describe("Excel validator full coverage", () => {
     runValidatorTest({ name: "missing_sheet", expectedError: "SHEET_MISSING" });
     runValidatorTest({ name: "required_cell_empty", expectedError: "REQUIRED_CELL_EMPTY" });
     runValidatorTest({ name: "required_column_missing", expectedError: "REQUIRED_COLUMN_MISSING" });
+    runValidatorTest({ name: "rule_all_or_none", expectedError: "RULE_ALL_OR_NONE" });
+    runValidatorTest({ name: "rule_at_least_one_required", expectedError: "RULE_AT_LEAST_ONE_REQUIRED" });
+    runValidatorTest({ name: "rule_conditional_enum", expectedError: "RULE_CONDITIONAL_ENUM" });
     runValidatorTest({ name: "rule_conditional_required", expectedError: "RULE_CONDITIONAL_REQUIRED" });
+    runValidatorTest({ name: "rule_date_order", expectedError: "RULE_DATE_ORDER" });
     runValidatorTest({ name: "rule_mutually_exclusive", expectedError: "RULE_MUTUALLY_EXCLUSIVE" });
+    runValidatorTest({ name: "rule_references_not_found", expectedError: "RULE_REFERENCE_NOT_FOUND" });
     runValidatorTest({ name: "rule_unique", expectedError: "RULE_UNIQUE" });
-    runValidatorTest({ name: "type_mismatch", expectedError: "TYPE_MISMATCH" });
-});
+    runValidatorTest({ name: "type_mismatch_boolean", expectedError: "TYPE_MISMATCH" });
+    runValidatorTest({ name: "type_mismatch_hour", expectedError: "TYPE_MISMATCH" });
+    runValidatorTest({ name: "type_mismatch_number", expectedError: "TYPE_MISMATCH" });
+    runValidatorTest({ name: "type_mismatch_time", expectedError: "TYPE_MISMATCH" });
+
+  });
 
 describe("Custom Excel validation", () => {
   it("reports", async () => {        // <- mark test async
