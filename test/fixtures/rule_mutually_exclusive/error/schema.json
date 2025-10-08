@@ -10,12 +10,12 @@
       { "name": "Amount", "required": false, "type": "number" },
       { "name": "IsActive", "required": false, "type": "boolean" },
       { "name": "ConditionalField", "required": false, "type": "string" },
-      { "name": "Exclusive1", "required": false, "type": "string" },
-      { "name": "Exclusive2", "required": false, "type": "string" }
+      { "name": "Exclusive1", "key": "ex1","required": false, "type": "string" },
+      { "name": "Exclusive2",  "key": "ex2","required": false, "type": "string" }
     ],
     "rules": {
       "unique": { "columns": ["ID", "Email"] },
-      "mutuallyExclusive": { "columns": ["Exclusive1", "Exclusive2"] },
+      "mutuallyExclusive": [ ["ex1", "ex2"] ],
       "conditionalRequired": {
         "when": { "column": "Category", "equals": "C" },
         "thenRequired": ["ConditionalField"]

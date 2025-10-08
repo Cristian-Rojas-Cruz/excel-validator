@@ -15,7 +15,7 @@
     ],
     "rules": {
       "unique": { "columns": ["ID", "Email"] },
-      "mutuallyExclusive": { "columns": ["Exclusive1", "Exclusive2"] },
+      "mutuallyExclusive": [ ["Exclusive1", "Exclusive2"] ],
       "conditionalRequired": {
         "when": { "column": "Category", "equals": "C" },
         "thenRequired": ["ConditionalField"]

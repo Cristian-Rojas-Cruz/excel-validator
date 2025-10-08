@@ -14,9 +14,9 @@
       { "name": "Exclusive2", "key":"exclusivetwo", "required": false, "type": "string" },
       { "name": "Departamento", "required": true, "type": "string" },
       { "name": "custom", "required": false, "type": "string" },
-      { "name": "Dirección", "required": false, "type": "string" },
-      { "name": "Ciudad", "required": false, "type": "string" },
-      { "name": "Código postal", "required": false, "type": "string" },
+      { "name": "Dirección","key":"address", "required": false, "type": "string" },
+      { "name": "Ciudad","key":"city", "required": false, "type": "string" },
+      { "name": "Código postal","key":"cp", "required": false, "type": "string" },
       { "name": "Tipo de contrato", "required": false, "type": "enum", "allowedValues": ["Temporal", "Fijo"] },
       { "name": "Fecha inicio", "required": true, "type": "date" },
       { "name": "Fecha fin",    "required": true, "type": "date" },
@@ -41,7 +41,7 @@
         ["Email", "custom"]
       ],
       "allOrNone": [
-        ["Dirección", "Ciudad", "Código postal"]
+        ["address", "city", "cp"]
       ],
       "conditionalEnum": [
         {

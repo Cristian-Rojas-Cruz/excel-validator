@@ -12,7 +12,7 @@
       { "name": "ConditionalField", "key":"condition", "required": false, "type": "string" },
       { "name": "Exclusive1", "key":"exclusiveone", "required": false, "type": "string" },
       { "name": "Exclusive2", "key":"exclusivetwo", "required": false, "type": "string" },
-      { "name": "Departamento", "key":"department", "required": false, "type": "string" },
+      { "name": "Departamento", "required": true, "type": "string" },
       { "name": "custom", "required": false, "type": "string" },
       { "name": "Dirección", "required": false, "type": "string" },
       { "name": "Ciudad", "required": false, "type": "string" },
@@ -32,7 +32,7 @@
       },
       "references": [
         {
-          "column": "department",
+          "column": "Departamento",
           "targetSheet": "OptionalSheet",
           "targetColumn": "Nombre del departamento"
         }
@@ -63,7 +63,7 @@
     "minRows": 1,
     "columns": [
       { "name": "CustomField", "required": true, "type": "string" },
-      { "name": "Nombre del departamento", "key":"name", "required": true, "type": "string" }
+      { "name": "Nombre del departamento", "key":"department", "required": true, "type": "string" }
     ],
     "rules": {
       "customRule": { "exampleParam": true }

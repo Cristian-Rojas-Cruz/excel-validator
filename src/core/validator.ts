@@ -7,7 +7,7 @@ import {
 } from "../rules/index.js";
 import { isBlank, coerceBoolean, coerceNumber, coerceDate, normalizeDateISO, coerceTimeToHHMMSS } from "./utils.js"
 
-import { loadWorkbook, loadWorkbookFrom, sheetToRows, type ExcelInput } from "./reader.js";
+import { loadWorkbookFrom, sheetToRows, type ExcelInput } from "./reader.js";
 
 const EMAIL_RE = /^(?!\.)(?!.*\.\.)[a-z0-9._+-]+(?<!\.)@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
@@ -56,26 +56,19 @@ export async function validateExcelAsync(
   schemaInput: string | object | WorkbookSchemaT,
   opts: ValidateOptions = {}
 ): Promise<ValidateResult> {
-
-
-  // const rawSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  // const schema: WorkbookSchemaT = WorkbookSchema.parse(rawSchema);
-  // const wb = await loadWorkbook(excelPath);
-
     // --- Parse schema input (path | JSON string | object) ---
-  let schemaObj: WorkbookSchemaT;
-  if (typeof schemaInput === "string") {
-    const s = schemaInput.trim();
-    // If it's JSON text, parse it; otherwise treat as a file path
-    if (s.startsWith("{") || s.startsWith("[")) {
-      schemaObj = WorkbookSchema.parse(JSON.parse(s));
+    let schemaObj: WorkbookSchemaT;
+    if (typeof schemaInput === "string") {
+      const s = schemaInput.trim();
+      if (fs.existsSync(s)) {
+        schemaObj = WorkbookSchema.parse(JSON.parse(fs.readFileSync(s, "utf8")));
+      } else {
+        schemaObj = WorkbookSchema.parse(JSON.parse(s));
+      }
     } else {
-      const json = fs.readFileSync(schemaInput, "utf8");
-      schemaObj = WorkbookSchema.parse(JSON.parse(json));
+      schemaObj = WorkbookSchema.parse(schemaInput);
     }
-  } else {
-    schemaObj = WorkbookSchema.parse(schemaInput);
-  }
+
 
   // --- Load workbook from any of the supported inputs ---
   const wb = await loadWorkbookFrom(excel);
@@ -88,6 +81,19 @@ export async function validateExcelAsync(
     const ws = wb.getWorksheet(def.tabname);
     sheetRowsByName[def.tabname] = ws ? sheetToRows(ws) : undefined;
   }
+
+  // Build key->header maps per sheet from the schema (once)
+  const nameByKeyPerSheet: Record<string, Record<string, string>> = {};
+  for (const def of schemaObj) {
+    const map: Record<string, string> = {};
+    for (const col of def.columns) {
+      const key = (col as any).key ?? col.name;
+      map[key] = col.name;
+    }
+    nameByKeyPerSheet[def.tabname] = map;
+  }
+  const resolveOnSheet = (sheetName: string, ref: string) =>
+    nameByKeyPerSheet[sheetName]?.[ref] ?? ref;
 
 
   for (const sheetDef of schemaObj) {
@@ -103,7 +109,7 @@ export async function validateExcelAsync(
       continue;
     }
 
-    const rows = sheetToRows(ws)
+    const rows = sheetRowsByName[sheetDef.tabname] ?? [];
 
     if (rows.length < sheetDef.minRows) {
       errors.push({
@@ -113,9 +119,20 @@ export async function validateExcelAsync(
       });
     }
 
-    const headers = Object.keys(rows[0] ?? {});
+
+    let headers: string[] = [];
+    {
+      const headerRow = ws.getRow(1);
+      const temp: string[] = [];
+      headerRow.eachCell({ includeEmpty: true }, (cell, col) => {
+        temp[col - 1] = cell.value ? String(cell.value).trim() : "";
+      });
+      headers = temp.filter(Boolean);
+    }
+
     const requiredCols = sheetDef.columns.filter(c => c.required).map(c => c.name);
     const missing = requiredCols.filter(c => !headers.includes(c));
+
     if (missing.length) {
       errors.push({
         code: "REQUIRED_COLUMN_MISSING",
@@ -124,174 +141,121 @@ export async function validateExcelAsync(
       });
     }
 
-    if (!opts.allowExtraColumns && rows[0]) {
+    if (!opts.allowExtraColumns) {
       const declared = new Set(sheetDef.columns.map(c => c.name));
-      const extras = Object.keys(rows[0]).filter(h => !declared.has(h));
-      void extras; // decide later if you want to surface as warnings
+      const extras = headers.filter(h => !declared.has(h));
+      void extras; // surface later if you want
     }
 
-    // -------- validation + data collection --------
-    const outRows: Array<Record<string, unknown>> = [];
+    const nameByKey = nameByKeyPerSheet[sheetDef.tabname] ?? {};
+    const resolveColumn = (ref: string) => nameByKey[ref] ?? ref;
 
-    rows.forEach((row, idx) => {
-      // Build one output row using schema keys (col.key ?? col.name)
-      const out: Record<string, unknown> = { rowNumber: idx + 2 };
+// -------- validation + data collection --------
+const outRows: Array<Record<string, unknown>> = [];
 
-      for (const col of sheetDef.columns) {
-        const outKey = (col as any).key ?? col.name; // <- use key if provided
-        const raw = (row as any)[col.name];
+rows.forEach((row, idx) => {
+  const out: Record<string, unknown> = { rowNumber: idx + 2 };
+  for (const col of sheetDef.columns) {
+    const outKey = (col as any).key ?? col.name;
+    const headerForCol = resolveColumn(outKey);
+    const raw = (row as any)[headerForCol];
+    let val: unknown = raw;
 
-        // Collect (with coercion) even if there are errors, so the caller can inspect
-        let val: unknown = raw;
+    // required / blank
+    if (col.required && isBlank(raw)) {
+      errors.push({
+        code: "REQUIRED_CELL_EMPTY",
+        message: `Row ${idx + 2}: Column "${col.name}" is required.`,
+        sheet: sheetDef.tabname,
+        row: idx + 2,
+        column: headerForCol,
+        tuple: { ...row },
+      });
+      out[outKey] = null;
+      continue;
+    }
+    if (isBlank(raw)) {
+      out[outKey] = null;
+      continue;
+    }
 
-        // Required check
-        if (col.required && isBlank(raw)) {
-          errors.push({
-            code: "REQUIRED_CELL_EMPTY",
-            message: `Row ${idx + 2}: Column "${col.name}" is required.`,
-            sheet: sheetDef.tabname,
-            row: idx + 2,
-            column: col.name,
-            tuple: { ...row },
-          });
-          // still set collected value as null for clarity
-          out[outKey] = null;
-          continue;
+    // coercions
+    if (col.type === "boolean") {
+      const b = coerceBoolean(raw); if (b !== null) val = b;
+    } else if (col.type === "number") {
+      const n = coerceNumber(raw);  if (n !== null) val = n;
+    }
+
+    // validate
+    switch (col.type) {
+      case "enum":
+        if (col.allowedValues && !col.allowedValues.includes(String(val))) {
+          errors.push({ code: "INVALID_ENUM", message: `Row ${idx + 2}: Invalid enum value "${raw}" for column "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
         }
-
-        // Empty values: store null and skip type checks
-        if (isBlank(raw)) {
-          out[outKey] = null;
-          continue;
+        break;
+      case "email":
+        if (!EMAIL_RE.test(String(val))) {
+          errors.push({ code: "INVALID_EMAIL", message: `Row ${idx + 2}: Invalid email in column "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
         }
-
-        // Coercions
-        if (col.type === "boolean") {
-          const b = coerceBoolean(raw);
-          if (b !== null) val = b;
-        } else if (col.type === "number") {
-          const n = coerceNumber(raw);
-          if (n !== null) val = n;
+        break;
+      case "number":
+        if (typeof val !== "number" || !Number.isFinite(val)) {
+          errors.push({ code: "TYPE_MISMATCH", message: `Row ${idx + 2}: Expected number in "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
         }
-
-        // Validate
-        switch (col.type) {
-          case "enum":
-            if (col.allowedValues && !col.allowedValues.includes(String(val))) {
-              errors.push({
-                code: "INVALID_ENUM",
-                message: `Row ${idx + 2}: Invalid enum value "${raw}" for column "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            }
-            break;
-
-          case "email":
-            if (!EMAIL_RE.test(String(val))) {
-              errors.push({
-                code: "INVALID_EMAIL",
-                message: `Row ${idx + 2}: Invalid email in column "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            }
-            break;
-
-          case "number":
-            if (typeof val !== "number" || !Number.isFinite(val)) {
-              errors.push({
-                code: "TYPE_MISMATCH",
-                message: `Row ${idx + 2}: Expected number in "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            }
-            break;
-
-          case "boolean":
-            if (typeof val !== "boolean") {
-              errors.push({
-                code: "TYPE_MISMATCH",
-                message: `Row ${idx + 2}: Expected boolean in "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            }
-            break;
-
-          case "date": {
-            // Try coercion to Date -> normalize to "YYYY-MM-DD"
-            const d = coerceDate(val);
-            if (!d) {
-              errors.push({
-                code: "TYPE_MISMATCH",
-                message: `Row ${idx + 2}: Expected date in "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            } else {
-              val = normalizeDateISO(d);
-            }
-            break;
-          }
-
-          case "time": {
-            // Try coercion to "HH:MM:SS"
-            const t = coerceTimeToHHMMSS(val);
-            if (!t) {
-              errors.push({
-                code: "TYPE_MISMATCH",
-                message: `Row ${idx + 2}: Expected time (HH:MM or HH:MM:SS) in "${col.name}".`,
-                sheet: sheetDef.tabname,
-                row: idx + 2,
-                column: col.name,
-                value: raw,
-                tuple: { ...row },
-              });
-            } else {
-              val = t;
-            }
-            break;
-          }
-
-          default:
-            // string: nothing extra
-            break;
+        break;
+      case "boolean":
+        if (typeof val !== "boolean") {
+          errors.push({ code: "TYPE_MISMATCH", message: `Row ${idx + 2}: Expected boolean in "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
         }
-
-        // Store coerced (or original) value under outKey
-        out[outKey] = val;
+        break;
+      case "date": {
+        const d = coerceDate(val);
+        if (!d) {
+          errors.push({ code: "TYPE_MISMATCH", message: `Row ${idx + 2}: Expected date in "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
+        } else {
+          val = normalizeDateISO(d);
+        }
+        break;
       }
+      case "time": {
+        const t = coerceTimeToHHMMSS(val);
+        if (!t) {
+          errors.push({ code: "TYPE_MISMATCH", message: `Row ${idx + 2}: Expected time (HH:MM or HH:MM:SS) in "${col.name}".`,
+            sheet: sheetDef.tabname, row: idx + 2, column: col.name, value: raw, tuple: { ...row } });
+        } else {
+          val = t;
+        }
+        break;
+      }
+      default:
+        // string: no strict check
+        break;
+    }
 
-      outRows.push(out);
-    });
+    out[outKey] = val;
+  }
+  outRows.push(out);
+});
+
 
     // Run rules
     if (sheetDef.rules) {
       for (const [ruleName, params] of Object.entries(sheetDef.rules)) {
+
         const ruleFn = ruleRegistry[ruleName];
         if (!ruleFn) continue;
         const ruleErrors = ruleFn({
           sheet: sheetDef.tabname,
           rows,
           params: params as Record<string, unknown>,
-          sheetRowsByName
+          sheetRowsByName,
+          resolveColumn,
+          resolveOnSheet
         });
         errors.push(...ruleErrors);
       }

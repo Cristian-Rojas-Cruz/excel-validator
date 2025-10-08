@@ -1,19 +1,21 @@
 import type { RuleFn } from "./index.js";
 
 type DateOrderCfg = {
-  /** (optional) A label for the rule pointing to a single date column (unused here but kept for compatibility) */
-  column?: string;
-  start: string; // column name holding start date
-  end: string;   // column name holding end date
+  start: string; // key or header
+  end: string;   // key or header
   message?: string;
 };
 
-function parseDate(v: unknown): Date | null {
+const isBlank = (v: unknown) =>
+  v == null || (typeof v === "string" && v.trim() === "");
+
+// Simple, consistent date coercion for rules (add your Excel serial support if needed)
+function toDate(v: unknown): Date | null {
   if (v instanceof Date && !isNaN(v.getTime())) return v;
   if (typeof v === "number") {
-    // exceljs usually gives Date, but in case of serial number, treat as days from 1899-12-30
-    const epoch = new Date(Date.UTC(1899, 11, 30));
-    const d = new Date(epoch.getTime() + v * 24 * 60 * 60 * 1000);
+    // treat as Excel serial days since 1899-12-30
+    const base = Date.UTC(1899, 11, 30);
+    const d = new Date(base + v * 86400000);
     return isNaN(d.getTime()) ? null : d;
   }
   if (typeof v === "string") {
@@ -25,45 +27,42 @@ function parseDate(v: unknown): Date | null {
   return null;
 }
 
-export const dateOrderRule: RuleFn = ({ sheet, rows, params }) => {
+export const dateOrderRule: RuleFn = ({ sheet, rows, params, resolveColumn }) => {
   const cfgs = Array.isArray(params) ? (params as DateOrderCfg[]) : [];
   const errors: any[] = [];
 
-  rows.forEach((r, idx) => {
-    for (const cfg of cfgs) {
-      const startV = (r as any)[cfg.start];
-      const endV = (r as any)[cfg.end];
+  for (const cfg of cfgs) {
+    const startH = resolveColumn ? resolveColumn(cfg.start) : cfg.start;
+    const endH   = resolveColumn ? resolveColumn(cfg.end)   : cfg.end;
 
-      if (startV == null || endV == null || String(startV).trim() === "" || String(endV).trim() === "") {
-        // if either is blank, skip (let required/other rules handle blanks)
-        continue;
-      }
+    rows.forEach((r, idx) => {
+      const sv = (r as any)[startH];
+      const ev = (r as any)[endH];
+      if (isBlank(sv) || isBlank(ev)) return; // leave required-ness to other rules
 
-      const dStart = parseDate(startV);
-      const dEnd = parseDate(endV);
-
-      if (!dStart || !dEnd) {
+      const sd = toDate(sv);
+      const ed = toDate(ev);
+      if (!sd || !ed) {
         errors.push({
           code: "RULE_DATE_ORDER",
-          message: `Invalid date format in "${cfg.start}" or "${cfg.end}".`,
+          message: `Invalid date in "${cfg.start}" or "${cfg.end}".`,
           sheet,
           row: idx + 2,
-          tuple: { ...r }
+          tuple: { ...r },
         });
-        continue;
+        return;
       }
-
-      if (dEnd <= dStart) {
+      if (ed <= sd) {
         errors.push({
           code: "RULE_DATE_ORDER",
           message: cfg.message ?? `End date "${cfg.end}" must be after start date "${cfg.start}".`,
           sheet,
           row: idx + 2,
-          tuple: { ...r }
+          tuple: { ...r },
         });
       }
-    }
-  });
+    });
+  }
 
   return errors;
 };

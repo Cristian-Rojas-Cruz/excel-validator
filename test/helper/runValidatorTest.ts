@@ -55,7 +55,6 @@ export function runValidatorTest({
 
     const resErr = await validateExcelAsync(errorExcel, errorSchema);
 
-    // console.log(resErr)
     expect(resErr.success).toBe(false);
 
     const includes = resErr.errors.some((e) => e.code === expectedError);

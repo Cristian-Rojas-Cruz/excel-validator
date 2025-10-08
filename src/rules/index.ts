@@ -7,6 +7,11 @@ export type RuleContext = {
 
     /** All parsed rows by sheet name, for cross-sheet rules like `references` */
   sheetRowsByName?: Record<string, Array<Record<string, unknown>> | undefined>;
+  // NEW: resolve a column ref (key or header) → the header name used in `rows`
+  resolveColumn?: (ref: string) => string;
+
+  // NEW: resolve on another sheet (for references rule)
+  resolveOnSheet?: (sheetName: string, ref: string) => string;
 };
 
 export type RuleFn = (ctx: RuleContext) => ValidationError[];
